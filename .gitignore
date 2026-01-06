@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# some files
+73eb48d7-4dbc-4a10-a52a-da745b47a649_p09owkuv.zip
+a.tsv
+b.tsv
+
+# Dataset
+BenchmarkDatasets/
+metadata/dataset_meta.json
