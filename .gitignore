@@ -220,3 +220,6 @@ dataset/
 checkpoints/
 wandb/
 data_analysis/figures/
+
+# Claude
+claude/

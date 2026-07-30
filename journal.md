@@ -89,3 +89,21 @@ Ran 100 epochs on the corrected split (paused ~4h mid-run because the laptop sle
 
 ### 2026-07-30 — decision: proceed to validity-penalty phase (planning)
 Baseline (λ=0) established: no collapse, decent marginals, 0% valid. Next phase = drive validity up while preserving no-collapse + distribution fidelity, and produce a clean baseline-vs-penalty comparison. Entering /plan to design it.
+
+### 2026-07-30 — Phase-2 results (model {base,wide} × λ {0,0.1,1,10}, 100 epochs each)
+Full table in `data_analysis/experiment_comparison.md` (held-out day 8, n=8192). Highlights:
+
+| run | valid_all | asks_mono | spread+ | depth_err | diversity (real 0.56) |
+|---|---|---|---|---|---|
+| base λ0 | 0.0% | 0.01% | 0.49 | 0.0136 | 0.528 |
+| base λ10 | **4.0%** | 16.4% | 0.74 | 0.0239 | 0.540 |
+| wide λ0 | 0.0% | 0.07% | 0.84 | **0.0042** | 0.535 |
+| wide λ10 | 0.7% | 3.1% | 0.90 | 0.0161 | 0.543 |
+
+**Findings:**
+1. **Soft penalty helps only weakly.** Full validity moves from 0% → at best **4%** (base λ=10); component monotonicity improves more (asks 0.01%→16% at base λ=10) but satisfying all ~20 ordering constraints *jointly* stays rare. λ∈{0.1,1} barely move full validity. ⇒ the soft penalty at these strengths is **insufficient**; need much larger λ / a λ-schedule, or **hard constraints** (cumulative-softplus), which is the planned contingency.
+2. **No mode collapse or memorization anywhere.** Diversity 0.53–0.54 vs real 0.56, nn-dist ~0.07 across *all* 8 runs — the penalty doesn't destabilize training (measured, per HRT framing).
+3. **Wide model** modestly improves depth fidelity (wide λ0 depth_err 0.0042, best overall) but does **not** fix validity — capacity isn't the bottleneck; the missing inductive bias for ordering is.
+4. Spread (`spread+`) is noisy/non-monotonic in λ — no clean win; spread remains the weakest marginal.
+
+**Conclusion / next phase (not started):** structural validity needs either a hard constraint (generator emits sorted prices by construction) or a much stronger/scheduled penalty. Capacity and collapse are not the limiting factors. Recommend hard cumulative-softplus construction as the next experiment.
