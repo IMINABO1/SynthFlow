@@ -214,3 +214,9 @@ b.tsv
 # Dataset
 BenchmarkDatasets/
 metadata/dataset_meta.json
+dataset/
+
+# Training artifacts
+checkpoints/
+wandb/
+data_analysis/figures/
