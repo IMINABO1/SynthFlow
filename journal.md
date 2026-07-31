@@ -124,3 +124,25 @@ Built `ConstrainedGenerator` (models/constrained.py): base price + cumulative-so
 **Findings:** validity jumped 0% → 97% (vs Phase-2 best of 4%), spread fidelity improved a lot (the parametrization *is* a spread), no collapse, no memorization — construction gives validity *and* better fidelity. The 97% (not 100%) miss was purely `positive_spread`: tiny learned spreads underflow to 0 in float32. Fixed with a `min_spread=1e-4` floor (real books always have ≥1 tick) → strictly positive by construction.
 
 Next: Phase-3b rigor (multi-seed × multi-day) to report mean±std.
+
+### 2026-07-31 — Phase-3b: rigorous comparison (3 seeds × held-out days 8/9/10)
+Ran {constrained, mlp λ0, mlp λ10} × seeds {0,1,2}, 100 epochs each; each evaluated on days
+8/9/10 and aggregated to mean±std (`data_analysis/experiment_comparison_phase3.md`). No sleep
+this run (power settings held).
+
+| config | valid_all | spread_err | depth_err | nn_dist | diversity (real ~0.56) |
+|---|---|---|---|---|---|
+| **constrained** | **1.0000 ± 0.0000** | **0.0001 ± 0.0000** | 0.0165 ± 0.0089 | 0.0788 ± 0.0118 | 0.539 ± 0.004 |
+| mlp λ0 | 0.0001 ± 0.0001 | 0.0003 ± 0.0001 | 0.0160 ± 0.0082 | 0.0789 ± 0.0110 | 0.540 ± 0.004 |
+| mlp λ10 | 0.0467 ± 0.0194 | 0.0002 ± 0.0001 | 0.0131 ± 0.0053 | 0.0782 ± 0.0109 | 0.538 ± 0.003 |
+
+**Defensible conclusions:**
+1. Constrained = **100.00% ± 0.00% valid** — perfect, zero variance across all seeds and held-out
+   days. vs soft-penalty 4.7% ± 1.9% and baseline ~0%. The min_spread floor gives exactly 100%.
+2. **No trade-off:** diversity and nn-dist are statistically identical across all three configs
+   (overlapping error bars) → validity came free, no collapse or memorization cost.
+3. Constrained also has the tightest spread fidelity (0.0001 ± 0.0000); depth comparable across all.
+
+**Phase-3 verdict:** hard construction (gap-space) is the answer to structural validity — it beats
+penalty-tuning and capacity, with no fidelity cost, and the result is robust (multi-seed × multi-day).
+The gap-space representation is reusable for a future diffusion model (the HRT comparison).
