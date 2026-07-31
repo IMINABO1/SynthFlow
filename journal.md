@@ -146,3 +146,34 @@ this run (power settings held).
 **Phase-3 verdict:** hard construction (gap-space) is the answer to structural validity — it beats
 penalty-tuning and capacity, with no fidelity cost, and the result is robust (multi-seed × multi-day).
 The gap-space representation is reusable for a future diffusion model (the HRT comparison).
+
+### 2026-07-31 — Phase-4 (capstone): GAN vs Diffusion, 2×2 (paradigm × construction)
+Built a DDPM (`models/diffusion.py`) + an exact gap↔book bijection (`gap_transform.py`) so diffusion
+can generate in the same gap-space. Ran diffusion {free, constrained} × 3 seeds; reused the Phase-3b
+GAN runs for the other two cells. Evaluated all four over seeds × held-out days 8/9/10
+(`data_analysis/comparison_final.md`).
+
+| paradigm | mode | valid_all | spread_err | depth_err | diversity (real ~0.56) |
+|---|---|---|---|---|---|
+| GAN | free | 0.0001 ± 0.0001 | 0.0003 | 0.0175 | 0.539 |
+| GAN | constructed | **1.0000 ± 0.0000** | 0.0001 | 0.0170 | 0.539 |
+| Diffusion | free | 0.0000 ± 0.0000 | 0.0006 | 0.0252 | 0.530 |
+| Diffusion | constructed | **1.0000 ± 0.0000** | 0.0000 | 0.0254 | 0.537 |
+
+**Conclusions:**
+1. **Validity is a construction property, not a paradigm property** — GAN and diffusion are both ~0%
+   valid free and exactly 100% constructed. Neither learns hard ordering on its own; the inductive
+   bias decides it, not the generator family.
+2. **The GAN did NOT mode-collapse** — diversity ~0.54 for both paradigms (statistically identical).
+   HRT's "GANs collapse on market data" did not reproduce here — plausibly WGAN-GP's gradient penalty.
+   Honest counterpoint to the framing (measured, not assumed).
+3. **Fidelity comparable** — both constructed models tightest on spread; GAN marginally better on depth
+   (diffusion higher variance). No decisive paradigm winner on this task.
+
+**Capstone verdict:** on FI-2010 LOB snapshots, **the gap-space construction dominates the paradigm
+choice** — WGAN-GP and diffusion are near-equivalent (both valid-by-construction, both diverse, similar
+fidelity). The project's arc: baseline (0% valid) → penalty/capacity fail (≤4.7%) → construction wins
+(100%, no cost) → GAN≈Diffusion once both are constructed. Deferred future work: sequences/order-flow,
+TSTR downstream utility.
+
+## PROJECT COMPLETE — see README for the full narrative.

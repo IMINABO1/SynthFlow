@@ -75,6 +75,16 @@ def main():
     check("ConstrainedGenerator: 100% valid by construction (untrained)",
           abs(vc["valid/all"] - 1.0) < 1e-6)
 
+    # --- diffusion gap-space bijection (valid by construction) ---
+    import gap_transform as GT
+    r = torch.randn(256, 40, device=dev)
+    book = GT.params_to_book(r)
+    book2 = GT.params_to_book(GT.book_to_params(book))
+    check("gap bijection round-trips (book->params->book)",
+          float((book - book2).abs().max()) < 1e-4)
+    check("params_to_book: 100% valid by construction",
+          abs(M.validity_stats(book.cpu().numpy())["valid/all"] - 1.0) < 1e-6)
+
     # --- metrics ---
     vb = make_valid_books()
     vs = M.validity_stats(vb)
