@@ -10,21 +10,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models.wgan import Generator
-from train import MinMaxScaler
+from train import load_scaler, build_generator
 from data.loader import DataSetLoader
 import metrics as M
 
 REPO = Path(__file__).resolve().parents[1]
-DEFAULT_GEN_HIDDEN = (128, 256, 256)  # v1 baseline ckpt has no gen_hidden in its config
 
 
 def eval_run(run_dir: Path, real: np.ndarray, n: int, dev: str) -> dict:
     ck = torch.load(run_dir / "ckpt_final.pt", map_location=dev)
-    sc = MinMaxScaler.load(run_dir / "scaler.npz")
+    sc = load_scaler(run_dir / "scaler.npz")
     cfg = ck["config"]
-    hidden = tuple(cfg.get("gen_hidden", DEFAULT_GEN_HIDDEN))
-    G = Generator(latent_dim=cfg["latent_dim"], out_dim=40, hidden=hidden).to(dev)
+    G = build_generator(cfg, dev)
     G.load_state_dict(ck["generator"])
     G.eval()
     fake = sc.inverse(G.sample(n, device=dev)).detach().cpu().numpy()

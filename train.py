@@ -11,7 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +20,8 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from data.loader import DataSetLoader, DEFAULT_DATA_PATH
 from models.wgan import Generator, Critic, gradient_penalty, lob_violation_penalty
-from lob_layout import ASK_PRICE_IDX, BID_PRICE_IDX
+from models.constrained import ConstrainedGenerator
+from lob_layout import ASK_PRICE_IDX, BID_PRICE_IDX, ASK_VOL_IDX, BID_VOL_IDX
 import metrics as M
 
 
@@ -51,12 +52,71 @@ class MinMaxScaler:
         return ((x + 1.0) / 2.0 * self.range + self.min).astype(np.float32)
 
     def save(self, path: Path) -> None:
-        np.savez(path, min=self.min, max=self.max)
+        np.savez(path, kind="minmax", min=self.min, max=self.max)
 
     @classmethod
     def load(cls, path: Path) -> "MinMaxScaler":
         d = np.load(path)
         return cls(d["min"], d["max"])
+
+
+# --------------------------------------------------------------------------- #
+# Global scaling to [0, 1] with ONE shared scale for all price columns and one
+# for all volume columns. Unlike per-feature min-max, a shared price scale
+# preserves cross-level price ordering, so a constructed (sorted) book stays
+# sorted after transform/inverse. Used by the constrained generator.
+# --------------------------------------------------------------------------- #
+class GlobalScaler:
+    _PIDX = ASK_PRICE_IDX + BID_PRICE_IDX
+    _VIDX = ASK_VOL_IDX + BID_VOL_IDX
+
+    def __init__(self, price_min, price_max, vol_min, vol_max) -> None:
+        self.price_min = float(price_min)
+        self.vol_min = float(vol_min)
+        self.price_range = float(price_max) - float(price_min) or 1.0
+        self.vol_range = float(vol_max) - float(vol_min) or 1.0
+
+    @classmethod
+    def fit(cls, x: np.ndarray) -> "GlobalScaler":
+        return cls(x[:, cls._PIDX].min(), x[:, cls._PIDX].max(),
+                   x[:, cls._VIDX].min(), x[:, cls._VIDX].max())
+
+    def transform(self, x: np.ndarray) -> np.ndarray:
+        out = np.array(x, dtype=np.float32, copy=True)
+        out[:, self._PIDX] = (x[:, self._PIDX] - self.price_min) / self.price_range
+        out[:, self._VIDX] = (x[:, self._VIDX] - self.vol_min) / self.vol_range
+        return out
+
+    def inverse(self, x):
+        is_torch = isinstance(x, torch.Tensor)
+        out = x.clone() if is_torch else np.array(x, dtype=np.float32, copy=True)
+        out[:, self._PIDX] = x[:, self._PIDX] * self.price_range + self.price_min
+        out[:, self._VIDX] = x[:, self._VIDX] * self.vol_range + self.vol_min
+        return out
+
+    def save(self, path: Path) -> None:
+        np.savez(path, kind="global", price_min=self.price_min,
+                 price_max=self.price_min + self.price_range,
+                 vol_min=self.vol_min, vol_max=self.vol_min + self.vol_range)
+
+    @classmethod
+    def load(cls, path: Path) -> "GlobalScaler":
+        d = np.load(path)
+        return cls(d["price_min"], d["price_max"], d["vol_min"], d["vol_max"])
+
+
+def load_scaler(path: Path):
+    """Load whichever scaler kind was saved (defaults to minmax for old files)."""
+    d = np.load(path)
+    kind = str(d["kind"]) if "kind" in d else "minmax"
+    return GlobalScaler.load(path) if kind == "global" else MinMaxScaler.load(path)
+
+
+def build_generator(cfg: dict, device):
+    """Reconstruct the generator from a saved checkpoint config (for eval)."""
+    hidden = tuple(cfg.get("gen_hidden", (128, 256, 256)))
+    GenCls = ConstrainedGenerator if cfg.get("model_type", "mlp") == "constrained" else Generator
+    return GenCls(latent_dim=cfg["latent_dim"], out_dim=40, hidden=hidden).to(device)
 
 
 @dataclass
@@ -79,6 +139,7 @@ class Config:
     run_name: str = "run"
     out_dir: str = ""  # defaults to checkpoints/<run_name> in __post_init__
     smoke: bool = False
+    model_type: str = "mlp"  # "mlp" (free output) or "constrained" (valid by construction)
     gen_hidden: tuple = (128, 256, 256)
     critic_hidden: tuple = (256, 256, 128)
 
@@ -113,7 +174,9 @@ def train(cfg: Config):
 
     # ---- data -------------------------------------------------------------- #
     train_raw, val_raw = load_data(cfg)
-    scaler = MinMaxScaler.fit(train_raw)
+    # constrained generator builds sorted books, so it needs the order-preserving
+    # GlobalScaler ([0,1] shared price scale); the plain MLP uses per-feature [-1,1].
+    scaler = (GlobalScaler if cfg.model_type == "constrained" else MinMaxScaler).fit(train_raw)
     scaler.save(out_dir / "scaler.npz")
     train_s = scaler.transform(train_raw)
 
@@ -125,9 +188,11 @@ def train(cfg: Config):
     val_ref_raw = val_raw[np.random.choice(len(val_raw), ref_n, replace=False)]
 
     # ---- models ------------------------------------------------------------ #
-    G = Generator(latent_dim=cfg.latent_dim, out_dim=train_s.shape[1],
-                  hidden=cfg.gen_hidden).to(device)
+    GenCls = ConstrainedGenerator if cfg.model_type == "constrained" else Generator
+    G = GenCls(latent_dim=cfg.latent_dim, out_dim=train_s.shape[1],
+               hidden=cfg.gen_hidden).to(device)
     D = Critic(in_dim=train_s.shape[1], hidden=cfg.critic_hidden).to(device)
+    use_penalty = cfg.lambda_valid > 0 and cfg.model_type != "constrained"
     optG = torch.optim.Adam(G.parameters(), lr=cfg.lr, betas=(cfg.beta1, cfg.beta2))
     optD = torch.optim.Adam(D.parameters(), lr=cfg.lr, betas=(cfg.beta1, cfg.beta2))
 
@@ -155,7 +220,7 @@ def train(cfg: Config):
             z = torch.randn(b, cfg.latent_dim, device=device)
             fake = G(z)
             loss_G = -D(fake).mean()
-            if cfg.lambda_valid > 0:
+            if use_penalty:
                 fake_raw = scaler.inverse(fake)  # penalty lives in price-comparable space
                 loss_G = loss_G + cfg.lambda_valid * lob_violation_penalty(
                     fake_raw, ASK_PRICE_IDX, BID_PRICE_IDX
@@ -231,12 +296,14 @@ def _save_ckpt(path, G, D, optG, optD, cfg, epoch, step):
 
 def parse_args() -> Config:
     p = argparse.ArgumentParser(description="Train WGAN-GP on FI-2010 LOB snapshots.")
-    d = Config()
-    for f, v in asdict(d).items():
+    # Use raw field defaults (not a constructed Config, whose __post_init__ would
+    # bake out_dir="checkpoints/run" and stop --run_name from propagating).
+    for fld in fields(Config):
+        v = fld.default
         if isinstance(v, bool):
-            p.add_argument(f"--{f}", action="store_true" if not v else "store_false")
+            p.add_argument(f"--{fld.name}", action="store_true" if not v else "store_false")
         elif isinstance(v, (int, float, str)):
-            p.add_argument(f"--{f}", type=type(v), default=v)
+            p.add_argument(f"--{fld.name}", type=type(v), default=v)
         # non-scalar fields (gen_hidden, critic_hidden) are set programmatically only
     args = p.parse_args()
     return Config(**vars(args))

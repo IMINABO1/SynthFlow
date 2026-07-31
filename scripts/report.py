@@ -10,8 +10,9 @@ import argparse
 import numpy as np
 import torch
 
-from models.wgan import Generator
-from train import MinMaxScaler
+from pathlib import Path
+
+from train import load_scaler, build_generator
 from data.loader import DataSetLoader
 import metrics as M
 
@@ -26,8 +27,8 @@ def main() -> None:
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     ck = torch.load(a.ckpt, map_location=dev)
-    sc = MinMaxScaler.load(a.scaler)
-    G = Generator(latent_dim=ck["config"]["latent_dim"], out_dim=40).to(dev)
+    sc = load_scaler(Path(a.scaler))
+    G = build_generator(ck["config"], dev)
     G.load_state_dict(ck["generator"])
     G.eval()
 

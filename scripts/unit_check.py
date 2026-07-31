@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from models.wgan import Generator, Critic, gradient_penalty, lob_violation_penalty
+from models.constrained import ConstrainedGenerator
 from lob_layout import (ASK_PRICE_IDX, BID_PRICE_IDX, ASK_VOL_IDX, BID_VOL_IDX,
                         N_LOB_FEATURES)
 import metrics as M
@@ -66,6 +67,13 @@ def main():
     crossed[:, BID_PRICE_IDX[0]] = crossed[:, ASK_PRICE_IDX[0]] + 1.0  # force crossed book
     pen_bad = lob_violation_penalty(crossed, ASK_PRICE_IDX, BID_PRICE_IDX)
     check("validity penalty >0 on crossed books", float(pen_bad) > 0)
+
+    # --- constrained generator: valid BY CONSTRUCTION (the whole point) ---
+    Gc = ConstrainedGenerator(latent_dim=100, out_dim=40).to(dev)
+    books = Gc.sample(512).cpu().numpy()
+    vc = M.validity_stats(books)
+    check("ConstrainedGenerator: 100% valid by construction (untrained)",
+          abs(vc["valid/all"] - 1.0) < 1e-6)
 
     # --- metrics ---
     vb = make_valid_books()

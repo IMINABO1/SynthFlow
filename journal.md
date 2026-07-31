@@ -107,3 +107,20 @@ Full table in `data_analysis/experiment_comparison.md` (held-out day 8, n=8192).
 4. Spread (`spread+`) is noisy/non-monotonic in λ — no clean win; spread remains the weakest marginal.
 
 **Conclusion / next phase (not started):** structural validity needs either a hard constraint (generator emits sorted prices by construction) or a much stronger/scheduled penalty. Capacity and collapse are not the limiting factors. Recommend hard cumulative-softplus construction as the next experiment.
+
+### 2026-07-30 — Phase-3a: constrained (gap-space) generator WORKS
+Built `ConstrainedGenerator` (models/constrained.py): base price + cumulative-softplus gaps ⇒ asks↑, bids↓, spread>0, volumes≥0, all differentiable. Wired into training via `GlobalScaler` (shared price/vol scale, order-preserving). Unit test: **untrained** constrained gen is already 100% valid.
+
+100-epoch validation run (`constrained_v1`) vs baseline, held-out day 8:
+
+| metric | baseline mlp λ0 | constrained | real |
+|---|---|---|---|
+| valid_all | 0.0% | **97.1%** | 100% |
+| asks/bids monotonic | ~0% | **100% / 100%** | 100% |
+| spread (mean,std) | −0.0001, 0.0014 | **+0.0003, 0.0007** | +0.0004, 0.0002 |
+| diversity | 0.528 | 0.538 | 0.564 |
+| nn-dist | 0.070 | 0.067 | — |
+
+**Findings:** validity jumped 0% → 97% (vs Phase-2 best of 4%), spread fidelity improved a lot (the parametrization *is* a spread), no collapse, no memorization — construction gives validity *and* better fidelity. The 97% (not 100%) miss was purely `positive_spread`: tiny learned spreads underflow to 0 in float32. Fixed with a `min_spread=1e-4` floor (real books always have ≥1 tick) → strictly positive by construction.
+
+Next: Phase-3b rigor (multi-seed × multi-day) to report mean±std.
